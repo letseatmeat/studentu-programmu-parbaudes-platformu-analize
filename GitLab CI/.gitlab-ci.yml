@@ -1,0 +1,35 @@
+stages:
+  - test
+
+batch_check:
+  image: python:3.11
+  stage: test
+
+  before_script:
+    - apt-get update
+    - apt-get install -y g++
+    - mkdir -p results
+
+  script:
+    - echo "Files in repository:"
+    - ls -la
+    - echo "Python version:"
+    - python --version
+    - echo "Run diagnostic batch tester:"
+    - >
+      python batch_tester.py
+      --zip progas.zip
+      --db db.csv
+      --out-csv results/results.csv
+      --out-summary results/summary.txt
+      --out-junit results/junit_report.xml
+      --out-dir results/logs
+    - cat results/summary.txt
+
+  artifacts:
+    when: always
+    paths:
+      - results/
+    reports:
+      junit: results/junit_report.xml
+    expire_in: 7 days
