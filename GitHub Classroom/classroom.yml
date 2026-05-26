@@ -1,0 +1,110 @@
+name: GitHub Classroom Functional Tests
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  checks: write
+  actions: read
+  contents: read
+
+jobs:
+  autograding:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compilation test
+        id: compile
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Compilation test
+          setup-command: ''
+          command: 'g++ -std=c++17 -Wall -Wextra -O2 -o main *.cpp'
+          timeout: 10
+          max-score: 1
+
+      - name: Query a - route by start and end stop
+        id: querya
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Query a - route by start and end stop
+          setup-command: 'rm -f err.txt'
+          command: |
+            bash -lc 'set -e;
+            out=$(printf "a\nRiga\nKraslava\ne\n" | ./main | tr -d "\r" | sed "s/[[:space:]]\+$//");
+            echo "$out";
+            grep -Fxq "result:" <<< "$out";
+            grep -Fxq "Riga Kraslava Pr 15:00 11.00" <<< "$out";
+            grep -Fxq "Riga Kraslava Pr 18:00 11.00" <<< "$out";'
+          timeout: 10
+          max-score: 2
+
+      - name: Query b - route by weekday
+        id: queryb
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Query b - route by weekday
+          setup-command: 'rm -f err.txt'
+          command: |
+            bash -lc 'set -e;
+            out=$(printf "b\nPt\ne\n" | ./main | tr -d "\r" | sed "s/[[:space:]]\+$//");
+            echo "$out";
+            grep -Fxq "result:" <<< "$out";
+            grep -Fxq "Riga Ventspils Pt 09:00 6.70" <<< "$out";
+            grep -Fxq "Liepaja Ventspils Pt 17:00 5.50" <<< "$out";'
+          timeout: 10
+          max-score: 2
+
+      - name: Query c - route by maximum ticket price
+        id: queryc
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Query c - route by maximum ticket price
+          setup-command: 'rm -f err.txt'
+          command: |
+            bash -lc 'set -e;
+            out=$(printf "c\n5.90\ne\n" | ./main | tr -d "\r" | sed "s/[[:space:]]\+$//");
+            echo "$out";
+            grep -Fxq "result:" <<< "$out";
+            grep -Fxq "Kraslava Daugavpils Ot 10:00 3.00" <<< "$out";
+            grep -Fxq "Dagda Kraslava Ce 18:00 2.50" <<< "$out";
+            grep -Fxq "Liepaja Ventspils Pt 17:00 5.50" <<< "$out";'
+          timeout: 10
+          max-score: 2
+
+      - name: Query d - invalid records and err.txt
+        id: queryd
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Query d - invalid records and err.txt
+          setup-command: 'rm -f err.txt'
+          command: |
+            bash -lc 'set -e;
+            out=$(printf "d\ne\n" | ./main | tr -d "\r" | sed "s/[[:space:]]\+$//");
+            echo "$out";
+            grep -Fxq "result:" <<< "$out";
+            grep -Fxq "Ventsplis,8.00,Liepaja,Sv,20:00" <<< "$out";
+            grep -Fxq "Dagda,Sv" <<< "$out";
+            grep -Fxq "Dagda,Kraslava,Ce,18:00,2.50,Sv" <<< "$out";
+            test -f err.txt;
+            err=$(cat err.txt | tr -d "\r" | sed "s/[[:space:]]\+$//");
+            grep -Fxq "Ventsplis,8.00,Liepaja,Sv,20:00" <<< "$err";
+            grep -Fxq "Dagda,Sv" <<< "$err";
+            grep -Fxq "Dagda,Kraslava,Ce,18:00,2.50,Sv" <<< "$err";'
+          timeout: 10
+          max-score: 3
+
+      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        env:
+          COMPILE_RESULTS: "${{ steps.compile.outputs.result }}"
+          QUERYA_RESULTS: "${{ steps.querya.outputs.result }}"
+          QUERYB_RESULTS: "${{ steps.queryb.outputs.result }}"
+          QUERYC_RESULTS: "${{ steps.queryc.outputs.result }}"
+          QUERYD_RESULTS: "${{ steps.queryd.outputs.result }}"
+        with:
+          runners: compile,querya,queryb,queryc,queryd

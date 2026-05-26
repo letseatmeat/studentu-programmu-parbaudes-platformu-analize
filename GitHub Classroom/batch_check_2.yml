@@ -1,0 +1,178 @@
+name: GitHub Actions Batch Check 2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  batch_check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++
+          mkdir -p results
+
+      - name: Show files
+        run: |
+          echo "Files in repository:"
+          ls -la
+          echo "Python version:"
+          python3 --version
+          echo "g++ version:"
+          g++ --version
+
+      - name: Run diagnostic batch tester
+        run: |
+          start=$(date +%s)
+
+          python3 batch_tester.py \
+            --zip progas.zip \
+            --db db.csv \
+            --out-csv results/results.csv \
+            --out-summary results/summary.txt \
+            --out-junit results/junit_report.xml \
+            --out-dir results/logs
+
+          end=$(date +%s)
+          echo "tester_seconds=$((end-start))" > results/timing.env
+
+      - name: Create readable batch summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          summary_path = Path("results/summary.txt")
+          timing_path = Path("results/timing.env")
+          out_path = Path("results/github_batch_summary.md")
+
+          text = summary_path.read_text(encoding="utf-8", errors="replace") if summary_path.exists() else ""
+
+          def get_int(label):
+              m = re.search(rf"^{re.escape(label)}:\s*(\d+)", text, re.MULTILINE)
+              return int(m.group(1)) if m else 0
+
+          total = get_int("Total files")
+          compiled = get_int("Compiled")
+          compile_failed = get_int("Compile failed")
+          strict_all = get_int("Strictly passed all 4 tests")
+          content_all = get_int("Content-correct in all 4 tests")
+
+          strict_a = get_int("a_route")
+          strict_b = get_int("b_day")
+          strict_c = get_int("c_price")
+          strict_d = get_int("d_errtxt")
+
+          # More precise parsing for content-ok section
+          content_section = text.split("Content-ok counts by test:", 1)[1].split("Diagnostic groups:", 1)[0] if "Content-ok counts by test:" in text else ""
+          def get_content_int(label):
+              m = re.search(rf"^{re.escape(label)}:\s*(\d+)", content_section, re.MULTILINE)
+              return int(m.group(1)) if m else 0
+
+          content_a = get_content_int("a_route")
+          content_b = get_content_int("b_day")
+          content_c = get_content_int("c_price")
+          content_d = get_content_int("d_errtxt")
+
+          groups = {}
+          if "Diagnostic groups:" in text:
+              group_section = text.split("Diagnostic groups:", 1)[1].split("Files failing strict checks:", 1)[0]
+              for line in group_section.splitlines():
+                  m = re.match(r"^([a-zA-Z0-9_]+):\s*(\d+)", line.strip())
+                  if m:
+                      groups[m.group(1)] = int(m.group(2))
+
+          tester_seconds = None
+          if timing_path.exists():
+              for line in timing_path.read_text().splitlines():
+                  if line.startswith("tester_seconds="):
+                      tester_seconds = int(line.split("=", 1)[1])
+
+          def pct(x, base=total):
+              return "0.0%" if not base else f"{x / base * 100:.1f}%"
+
+          def fmt_seconds(sec):
+              if sec is None:
+                  return "n/a"
+              minutes, seconds = divmod(sec, 60)
+              return f"{minutes} min {seconds} s" if minutes else f"{seconds} s"
+
+          avg_total = f"{tester_seconds / total:.2f} s" if tester_seconds and total else "n/a"
+          avg_compiled = f"{tester_seconds / compiled:.2f} s" if tester_seconds and compiled else "n/a"
+
+          md = f"""# Batch autograding summary
+
+          ## Overall result
+
+          | Metric | Value |
+          |---|---:|
+          | Total checked files | {total} |
+          | Compiled successfully | {compiled} ({pct(compiled)}) |
+          | Compile failed | {compile_failed} ({pct(compile_failed)}) |
+          | Strictly passed all 4 functional tests | {strict_all} ({pct(strict_all)}) |
+          | Content-correct in all 4 tests | {content_all} ({pct(content_all)}) |
+          | Batch tester execution time | {fmt_seconds(tester_seconds)} |
+          | Average tester time per file | {avg_total} |
+          | Average tester time per compiled solution | {avg_compiled} |
+
+          ## Strict pass counts by test
+
+          | Test | Passed | Share of all files |
+          |---|---:|---:|
+          | a_route | {strict_a} | {pct(strict_a)} |
+          | b_day | {strict_b} | {pct(strict_b)} |
+          | c_price | {strict_c} | {pct(strict_c)} |
+          | d_errtxt | {strict_d} | {pct(strict_d)} |
+
+          ## Content-correct counts by test
+
+          | Test | Content-correct | Share of all files |
+          |---|---:|---:|
+          | a_route | {content_a} | {pct(content_a)} |
+          | b_day | {content_b} | {pct(content_b)} |
+          | c_price | {content_c} | {pct(content_c)} |
+          | d_errtxt | {content_d} | {pct(content_d)} |
+
+          ## Diagnostic groups
+
+          | Group | Files | Share of all files |
+          |---|---:|---:|
+          """
+
+          for key in ["compile_error", "content_ok_format_issue", "partial_content_ok", "runtime_or_timeout", "strict_pass", "wrong_content"]:
+              value = groups.get(key, 0)
+              md += f"| {key} | {value} | {pct(value)} |\n"
+
+          md += """
+          ## Interpretation
+
+          This batch run checks the same archive of student C++ files in one GitHub Actions workflow. The result should be interpreted as an additional batch experiment in a GitHub Classroom student repository, not as the standard GitHub Classroom assignment workflow for 260 separate students.
+          """
+
+          out_path.write_text(md, encoding="utf-8")
+
+          step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step_summary:
+              Path(step_summary).write_text(md, encoding="utf-8")
+
+          print(md)
+          PY
+
+      - name: Show summary
+        if: always()
+        run: |
+          cat results/summary.txt || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-actions-batch-results
+          path: results/

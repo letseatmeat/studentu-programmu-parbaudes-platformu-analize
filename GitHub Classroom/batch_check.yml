@@ -1,0 +1,49 @@
+name: GitHub Actions Batch Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  batch_check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++
+          mkdir -p results
+
+      - name: Show files
+        run: |
+          echo "Files in repository:"
+          ls -la
+          echo "Python version:"
+          python3 --version
+          echo "g++ version:"
+          g++ --version
+
+      - name: Run diagnostic batch tester
+        run: |
+          python3 batch_tester.py \
+            --zip progas.zip \
+            --db db.csv \
+            --out-csv results/results.csv \
+            --out-summary results/summary.txt \
+            --out-junit results/junit_report.xml \
+            --out-dir results/logs
+
+      - name: Show summary
+        if: always()
+        run: |
+          cat results/summary.txt || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-actions-batch-results
+          path: results/
